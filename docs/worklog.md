@@ -2,6 +2,26 @@
 
 Detailed handoff log so any agent can pick up where the previous one stopped. Newest entries on top.
 
+## 2026-10-03 — ADRs, enrollment spike, mTLS spike
+
+- **Branching (CLAUDE.md):** use `feature/*` and `bugfix/*` branches and conventional commits. Branches:
+  - `feature/investigation-plan`: plan + ADRs (based on `master`)
+  - `feature/enrollment-spike`: based on the previous branch
+  - nothing pushed yet
+- `go.mod` bumped to `go 1.26.0`, because `go.step.sm/crypto` v0.91 needs it (local Go is 1.24.1; the toolchain auto-downloads).
+- ADRs 0001–0008 written in `docs/adr/`.
+- **Spike E1** (`spikes/enroll`): `go run ./spikes/enroll -env .env -out DIR -ttl 24h`.
+  - Loads `.env` via godotenv; never print values, and never `source .env` in the shell: the PEM line breaks shell parsing and echoes the value.
+  - Works against step-ca (see the result in ADR-0004). 4320h is still rejected; the step-ca claims change is pending with the user.
+- **Spike E2** (`deploy/spike/mtls/mtls.yaml`), applied in `ondota`:
+  - TLSOption `device-mtls`, Middleware `pass-client-cert`, Deployment/Service `mtls-echo` (traefik/whoami), Ingress `devices-mtls-spike`
+  - LE cert `devices-ondota-tls`
+  - Secret `device-ca` (step-ca root, from ConfigMap `step-ca/step-certificates-certs`)
+
+  Results are in ADR-0003. Cleanup: `kubectl delete -f deploy/spike/mtls/mtls.yaml` (keep `device-ca` for the real chart).
+- `ondota.ownerofglory.com` has no ingress yet (curl fails as expected).
+- **Next:** M0 skeleton on a new `feature/` branch (server layout, config, two listeners, Helm, Postgres in `ondota`, CI). Then M1 enrollment, using the spike code as reference.
+
 ## 2026-10-03 — Plan v5: Google-only login, step-ca change pending
 
 - User: Google login only for now (`OAUTH2_CLIENT_ID_GOOGLE` / `OAUTH2_CLIENT_SECRET_GOOGLE` in `.env.template`). Dex is deferred until GitHub login is needed.

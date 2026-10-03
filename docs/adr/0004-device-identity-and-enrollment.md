@@ -29,6 +29,12 @@ A new OTP can be issued while the device is still `pending`.
 
 **Libraries:** `go.step.sm/crypto` (`jose`, `x509util`) for the OTT and the CSR. step-ca is called over plain HTTP(S) with the root from `STEP_CA_PEM`, instead of the heavy `smallstep/certificates/ca` client.
 
+## Spike result (2026-10-03, `spikes/enroll`)
+- A JWK OTT with `aud = <STEP_CA_PROVIDER_URL>/1.0/sign`, `sub = <uuid>` and `sans = ["ondota:device:<uuid>"]` is accepted by step-ca. The external NodePort URL works as the audience.
+- A CSR **with empty subject and no SANs** is accepted. The cert gets `CN=<uuid>` and URI SAN `ondota:device:<uuid>` from the token, so the agent doesn't need to know its ID before enrollment.
+- Issued by `Step Certificates Intermediate CA`, EKU `serverAuth, clientAuth`.
+- `notAfter: 4320h` is rejected with 403 ("authorized maximum … 24h1m0s") until the provisioner claim is raised.
+
 ## Consequences
 - The device is bound to its tenant in the DB, not in the cert. Moving a device between tenants needs no re-issue.
 - A stolen device key works until revocation. The 180-day lifetime is acceptable because revocation is enforced on every request.

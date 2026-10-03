@@ -1,0 +1,77 @@
+# Spike (ADR-0003): mTLS on devices.ondota.ownerofglory.com terminated by Traefik.
+# Echo backend (whoami) shows the forwarded X-Forwarded-Tls-Client-Cert header.
+# Requires Secret ondota/device-ca (key ca.crt = step-ca root), created separately.
+apiVersion: traefik.io/v1alpha1
+kind: TLSOption
+metadata:
+  name: device-mtls
+  namespace: ondota
+spec:
+  minVersion: VersionTLS12
+  clientAuth:
+    clientAuthType: RequireAndVerifyClientCert
+    secretNames:
+      - device-ca
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: pass-client-cert
+  namespace: ondota
+spec:
+  passTLSClientCert:
+    pem: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mtls-echo
+  namespace: ondota
+  labels: {app: mtls-echo}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: mtls-echo}
+  template:
+    metadata:
+      labels: {app: mtls-echo}
+    spec:
+      containers:
+        - name: whoami
+          image: traefik/whoami:v1.11
+          ports: [{containerPort: 80}]
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {memory: 32Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mtls-echo
+  namespace: ondota
+spec:
+  selector: {app: mtls-echo}
+  ports: [{port: 80, targetPort: 80}]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: devices-mtls-spike
+  namespace: ondota
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-production
+    traefik.ingress.kubernetes.io/router.tls.options: ondota-device-mtls@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: ondota-pass-client-cert@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: devices.ondota.ownerofglory.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: mtls-echo, port: {number: 80}}
+  tls:
+    - hosts: [devices.ondota.ownerofglory.com]
+      secretName: devices-ondota-tls

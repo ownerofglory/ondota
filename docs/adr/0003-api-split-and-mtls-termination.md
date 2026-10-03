@@ -19,6 +19,12 @@ Traefik selects TLS options per router, by SNI. It cannot require a client cert 
 - The device listener parses the PEM again, checks it chains to the configured CA bundle and is within validity (defense in depth), extracts the device ID from the URI SAN `ondota:device:<uuid>`, and loads the device. Requests from devices that are revoked or unknown are rejected (`403`).
 - Contracts are in `api/openapi-user.yaml` and `api/openapi-device.yaml`.
 
+## Spike result (2026-10-03, `deploy/spike/mtls/`)
+Verified end-to-end on `devices.ondota.ownerofglory.com`:
+- A step-ca device cert is accepted. No client cert, or a self-signed cert, fails the TLS handshake.
+- Header format: `X-Forwarded-Tls-Client-Cert` is **URL-escaped, comma-separated, base64 DER (no PEM armour), leaf first, followed by the intermediate**. The URI SAN `ondota:device:<uuid>` is present.
+- `device-ca` holds only the step-ca **root**. Clients send the intermediate in their chain.
+
 ## Alternatives
 - TLS passthrough (`IngressRouteTCP`) with Go terminating mTLS: no trusted header, but the server has to manage its own certs and Traefik can't route by path. Revisit if the header trust model ever becomes a concern.
 - A single host with `VerifyClientCertIfGiven`: rejected, because the device API would rely on application code alone.
