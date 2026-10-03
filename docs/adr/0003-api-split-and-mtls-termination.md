@@ -12,11 +12,11 @@ Traefik selects TLS options per router, by SNI. It cannot require a client cert 
 | Host | TLS | Surfaces |
 |---|---|---|
 | `ondota.ownerofglory.com` | Let's Encrypt, no client cert | `/api/v1` (user API, OIDC bearer), `/enroll/v1` (OTP + CSR), `/hooks/github` |
-| `devices.ondota.ownerofglory.com` | Let's Encrypt server cert, **`RequireAndVerifyClientCert`** against the step-ca root + intermediate | `/device/v1` |
+| `devices.ondota.ownerofglory.com` | Let's Encrypt server cert, **`RequireAndVerifyClientCert`** against the step-ca root (Secret `device-ca`) | `/device/v1` |
 
-- **Traefik terminates mTLS** (as in `mtls-poc`). The `passTLSClientCert` middleware (`pem: true`) forwards the leaf in `X-Forwarded-Tls-Client-Cert`.
+- **Traefik terminates mTLS** (as in `mtls-poc`). The `passTLSClientCert` middleware (`pem: true`) forwards the client chain (leaf first) in `X-Forwarded-Tls-Client-Cert`.
 - The server runs **two HTTP listeners** (`:8080` public, `:8081` device). Only the device router targets `:8081`, and only the device listener reads the forwarded-cert header. The public listener never trusts it. A NetworkPolicy restricts ingress to Traefik.
-- The device listener parses the PEM again, checks it chains to the configured CA bundle and is within validity (defense in depth), extracts the device ID from the URI SAN `ondota:device:<uuid>`, and loads the device. Requests from devices that are revoked or unknown are rejected (`403`).
+- The device listener decodes the header (URL-escaped, comma-separated base64 DER), checks it chains to the configured CA bundle and is within validity (defense in depth), extracts the device ID from the URI SAN `ondota:device:<uuid>`, and loads the device. Requests from devices that are revoked or unknown are rejected (`403`).
 - Contracts are in `api/openapi-user.yaml` and `api/openapi-device.yaml`.
 
 ## Spike result (2026-10-03, `deploy/spike/mtls/`)
