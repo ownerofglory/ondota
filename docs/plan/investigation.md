@@ -209,7 +209,7 @@ None blocking. Pending action: the user applies the step-ca claims change (D12).
 - `CHANGELOG.md`, `docs/worklog.md`
 
 ## 8. Tentative roadmap after investigation
-- **M0 Skeleton:** layout, CI, Helm, Postgres in `ondota`, health endpoints, both Traefik routers (`ondota.` + `devices.ondota.`), config from env (D10).
+- **M0 Skeleton** *(implemented on `feature/m0-skeleton`; first deploy pending CI)*: layout, CI, Helm, Postgres in `ondota`, health endpoints, both Traefik routers (`ondota.` + `devices.ondota.`), config from env (D10).
 - **M1 Identity:** Google login (Dex/GitHub later), user identity linking, tenants, memberships and roles (platform admin), tenant-scoped device registration + OTP, enrollment through step-ca, mTLS device API, cert renewal, revocation.
 - **M2 Releases and desired state:** GitHub webhook + reconcile, latest-stable policy, manifest registration, `GET /desired-state`.
 - **M3 Agent:** enroll, poll, download, verify, atomic install, restart, rollback, report. Packaged for arm64. The user installs it on the Pi, replacing `scp`.

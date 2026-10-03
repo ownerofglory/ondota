@@ -2,6 +2,41 @@
 
 Detailed handoff log so any agent can pick up where the previous one stopped. Newest entries on top.
 
+## 2026-10-03 — M0 skeleton (`feature/m0-skeleton`)
+
+- Branch chain, none pushed: `master` → `feature/investigation-plan` → `feature/enrollment-spike` → `feature/m0-skeleton`. The GitHub default branch is `main` (it only has the initial commit).
+- **Server**:
+  - `cmd/ondota-server`: two listeners, public `:8080` and device `:8081`; errgroup with graceful shutdown
+  - `config/` (caarlos0/env: `PUBLIC_ADDR`, `DEVICE_ADDR`, `LOG_LEVEL`, `APP_ENV`, `DATABASE_URL`)
+  - `pkg/health` (`/livez` `/readyz` `/startupz`)
+  - `internal/adapter/inbound/http`: `NewPublicRouter` (`/api/v1/version`) and `NewDeviceRouter` (`/device/v1/version`); the routers don't share routes
+  - `internal/adapter/outbound/postgres` (pgxpool `Open` and `Check`)
+  - `migrations/000001_init` (schema `ondota`)
+- **Tests**:
+  - unit: config, health, routers
+  - integration (`-tags=integration`, `TEST_DATABASE_URL`): resets schema `ondota` and applies all up migrations. Passed against `ondota_test` in the cluster through a port-forward.
+  - smoke-ran the binary against the cluster DB: all probes 200, device port returns 404 for the user API
+- **Cluster (`ondota`)**:
+  - Postgres StatefulSet `ondota-postgres` (postgres:17-alpine, 5Gi local-path) with a NetworkPolicy (same-namespace only)
+  - Secrets `ondota-postgres`, `ondota-app` (`DATABASE_URL`) and `device-ca`
+  - SA `ondota-deployer` + Role/RoleBinding (namespace-only; verified it can't read `step-ca`) + token secret
+- **Helm**:
+  - `charts/ondota`: Deployment with 2 ports; public and device Ingress; TLSOption `<rel>-device-mtls`; Middleware `<rel>-pass-client-cert`; NetworkPolicy allowing only Traefik (kube-system); migrations-check hook
+  - `infra/migrations` (hook job, `existingSecret: ondota-app`)
+
+  Both pass lint and a server-side dry run in `ondota`.
+- **CI**:
+  - `pull-request-checks.yaml`: fmt, vet, coverage, build, helm lint/template, docker build, integration with a postgres:17 service
+  - `release.yaml`: version → image (Docker Hub `<DOCKER_USER>/ondota-server`) + chart (GHCR OCI) → migrate → deploy (environment `production`) → smoke
+
+  Required GitHub secrets are listed in `deploy/README.md`.
+- **Not done / caveats**:
+  - Nothing is deployed via the chart yet: no image exists until CI runs, and local Docker isn't available.
+  - Before the first deploy, delete the mTLS spike (`deploy/spike/mtls`), because it uses the same host.
+  - The NetworkPolicy assumes kube-router allows kubelet probes from the node. Verify on the first deploy.
+  - Docker build in CI is untested locally.
+- **Next:** user pushes/opens PRs and sets the GitHub secrets. Then M1: Google OIDC auth, tenants/roles, device registration + OTP, enrollment via step-ca (port `spikes/enroll`), device-identity middleware parsing `X-Forwarded-Tls-Client-Cert`.
+
 ## 2026-10-03 — ADRs, enrollment spike, mTLS spike
 
 - **Branching (CLAUDE.md):** use `feature/*` and `bugfix/*` branches and conventional commits. Branches:
