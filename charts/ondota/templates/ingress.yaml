@@ -1,0 +1,78 @@
+{{- if .Values.ingress.enabled }}
+{{- $fullname := include "ondota.fullname" . }}
+# Public host: user API, enrollment, webhooks. No client certificate.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-public
+  labels:
+    {{- include "ondota.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ required "ingress.clusterIssuer is required" .Values.ingress.clusterIssuer | quote }}
+spec:
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  rules:
+    - host: {{ required "ingress.public.host is required" .Values.ingress.public.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}
+                port: {name: public}
+  tls:
+    - hosts: [{{ .Values.ingress.public.host | quote }}]
+      secretName: {{ required "ingress.public.tlsSecretName is required" .Values.ingress.public.tlsSecretName | quote }}
+---
+# Device host: Traefik requires and verifies a step-ca client certificate and
+# forwards it in X-Forwarded-Tls-Client-Cert (ADR-0003).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-device
+  labels:
+    {{- include "ondota.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
+    traefik.ingress.kubernetes.io/router.tls.options: {{ printf "%s-%s-device-mtls@kubernetescrd" .Release.Namespace $fullname }}
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-pass-client-cert@kubernetescrd" .Release.Namespace $fullname }}
+spec:
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  rules:
+    - host: {{ required "ingress.device.host is required" .Values.ingress.device.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}
+                port: {name: device}
+  tls:
+    - hosts: [{{ .Values.ingress.device.host | quote }}]
+      secretName: {{ required "ingress.device.tlsSecretName is required" .Values.ingress.device.tlsSecretName | quote }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: TLSOption
+metadata:
+  name: {{ $fullname }}-device-mtls
+  labels:
+    {{- include "ondota.labels" . | nindent 4 }}
+spec:
+  minVersion: VersionTLS12
+  clientAuth:
+    clientAuthType: RequireAndVerifyClientCert
+    secretNames:
+      - {{ required "ingress.device.clientCASecretName is required" .Values.ingress.device.clientCASecretName }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ $fullname }}-pass-client-cert
+  labels:
+    {{- include "ondota.labels" . | nindent 4 }}
+spec:
+  passTLSClientCert:
+    pem: true
+{{- end }}
