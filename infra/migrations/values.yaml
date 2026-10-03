@@ -1,0 +1,6 @@
+image:
+  repository: ""
+  tag: ""
+
+# existingSecret names a Secret with DATABASE_URL (e.g. the app secret).
+existingSecret: ondota-app

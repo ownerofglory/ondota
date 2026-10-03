@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ondota.fullname" . }}
+  labels:
+    {{- include "ondota.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "ondota.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "ondota.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "ondota.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: server
+          image: {{ include "ondota.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: public
+              containerPort: {{ .Values.service.publicPort }}
+            - name: device
+              containerPort: {{ .Values.service.devicePort }}
+          env:
+            - name: APP_ENV
+              value: {{ .Values.env.appEnvironment | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.env.logLevel | quote }}
+            - name: PUBLIC_ADDR
+              value: {{ printf "0.0.0.0:%v" .Values.service.publicPort | quote }}
+            - name: DEVICE_ADDR
+              value: {{ printf "0.0.0.0:%v" .Values.service.devicePort | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ include "ondota.secretName" . }}
+          livenessProbe:
+            httpGet: {path: /livez, port: public}
+          readinessProbe:
+            httpGet: {path: /readyz, port: public}
+          startupProbe:
+            httpGet: {path: /startupz, port: public}
+            failureThreshold: 30
+            periodSeconds: 2
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

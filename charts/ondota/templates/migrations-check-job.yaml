@@ -1,0 +1,34 @@
+{{- if .Values.migrationsCheck.enabled }}
+# Fails the release before the Deployment changes if the image expects
+# migrations the database does not have yet.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "ondota.fullname" . }}-migrations-check
+  labels:
+    {{- include "ondota.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrations-check
+          image: {{ include "ondota.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command: ["/usr/local/bin/migrate", "check"]
+          envFrom:
+            - secretRef:
+                name: {{ include "ondota.secretName" . }}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 64Mi}
+{{- end }}

@@ -1,0 +1,85 @@
+# Single-instance PostgreSQL for ondOTA (ADR-0006).
+# Credentials come from Secret ondota/ondota-postgres (keys: POSTGRES_USER,
+# POSTGRES_PASSWORD, POSTGRES_DB), created outside git — see deploy/README.md.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ondota-postgres
+  namespace: ondota
+  labels: {app.kubernetes.io/name: ondota-postgres}
+spec:
+  selector: {app.kubernetes.io/name: ondota-postgres}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ondota-postgres
+  namespace: ondota
+  labels: {app.kubernetes.io/name: ondota-postgres}
+spec:
+  serviceName: ondota-postgres
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: ondota-postgres}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: ondota-postgres}
+    spec:
+      securityContext:
+        fsGroup: 70
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: ondota-postgres
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 5Gi
+---
+# Only pods in this namespace may reach the database.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ondota-postgres
+  namespace: ondota
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: ondota-postgres}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - port: 5432

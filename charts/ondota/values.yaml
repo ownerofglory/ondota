@@ -1,0 +1,86 @@
+replicaCount: 1
+
+image:
+  repository: ""
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+  readOnlyRootFilesystem: true
+
+service:
+  type: ClusterIP
+  # publicPort serves the user API, enrollment and webhooks.
+  publicPort: 8080
+  # devicePort serves the mTLS-only device API (ADR-0003).
+  devicePort: 8081
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+ingress:
+  enabled: false
+  className: traefik
+  clusterIssuer: letsencrypt-production
+  public:
+    host: ondota.ownerofglory.com
+    tlsSecretName: ondota-public-tls
+  device:
+    host: devices.ondota.ownerofglory.com
+    tlsSecretName: ondota-device-tls
+    # clientCASecretName names a Secret (key ca.crt) with the step-ca root that
+    # device client certificates must chain to. It is managed outside the chart.
+    clientCASecretName: device-ca
+
+# networkPolicy limits ingress to the server pods to Traefik.
+networkPolicy:
+  enabled: true
+  traefikNamespace: kube-system
+  traefikPodLabels:
+    app.kubernetes.io/name: traefik
+
+env:
+  logLevel: info
+  appEnvironment: production
+
+# migrationsCheck fails a release whose image expects migrations that are not
+# applied yet (run the "Apply database migrations" workflow first).
+migrationsCheck:
+  enabled: true
+
+# existingSecret names a Secret created outside Helm holding DATABASE_URL and
+# other credentials, so they never land in release metadata. Leave empty only
+# for local installs, which fall back to a release-owned Secret built from secrets.*.
+existingSecret: ""
+secrets:
+  databaseURL: ""
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,0 +1,141 @@
+# Release pipeline: image → chart → migrations → deploy into namespace ondota.
+# Runs on main (pre-release versions) and on v* tags. Protect the "production"
+# environment in GitHub settings to require a manual approval before migrate/deploy.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  IMAGE_REPOSITORY: ${{ vars.DOCKER_IMAGE_NAME || format('{0}/ondota-server', secrets.DOCKER_USER) }}
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      value: ${{ steps.v.outputs.value }}
+    steps:
+      - id: v
+        shell: bash
+        run: |
+          if [[ '${{ github.ref_type }}' == tag ]]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=0.1.0-main.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+  image:
+    needs: version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE_REPOSITORY }}:${{ needs.version.outputs.value }}
+          build-args: |
+            BUILD_VERSION=${{ needs.version.outputs.value }}
+
+  chart:
+    needs: version
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Package and push chart
+        run: |
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          echo '${{ secrets.GITHUB_TOKEN }}' | helm registry login ghcr.io -u '${{ github.actor }}' --password-stdin
+          helm package charts/ondota --version '${{ needs.version.outputs.value }}' --app-version '${{ needs.version.outputs.value }}'
+          helm push ondota-'${{ needs.version.outputs.value }}'.tgz "oci://ghcr.io/$owner/helm-charts"
+
+  migrate:
+    needs: [version, image]
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure cluster access
+        env:
+          KUBERNETES_CA_DATA: ${{ secrets.KUBERNETES_CA_DATA }}
+          KUBERNETES_CLUSTER_SERVER_URL: ${{ secrets.KUBERNETES_CLUSTER_SERVER_URL }}
+          KUBERNETES_TOKEN: ${{ secrets.KUBERNETES_TOKEN }}
+        run: envsubst < .kube/config > "$RUNNER_TEMP/kubeconfig"
+      - uses: azure/setup-helm@v4
+      - name: Apply migrations
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        run: |
+          helm upgrade --install ondota-migrations infra/migrations \
+            --namespace ondota \
+            --set-string image.repository="$IMAGE_REPOSITORY" \
+            --set-string image.tag='${{ needs.version.outputs.value }}' \
+            --wait --wait-for-jobs --timeout 5m
+
+  deploy:
+    needs: [version, chart, migrate]
+    runs-on: ubuntu-24.04
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure cluster access
+        env:
+          KUBERNETES_CA_DATA: ${{ secrets.KUBERNETES_CA_DATA }}
+          KUBERNETES_CLUSTER_SERVER_URL: ${{ secrets.KUBERNETES_CLUSTER_SERVER_URL }}
+          KUBERNETES_TOKEN: ${{ secrets.KUBERNETES_TOKEN }}
+        run: envsubst < .kube/config > "$RUNNER_TEMP/kubeconfig"
+      - uses: azure/setup-helm@v4
+      - name: Deploy chart
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kubeconfig
+        run: |
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          echo '${{ secrets.GITHUB_TOKEN }}' | helm registry login ghcr.io -u '${{ github.actor }}' --password-stdin
+          helm upgrade --install ondota "oci://ghcr.io/$owner/helm-charts/ondota" \
+            --version '${{ needs.version.outputs.value }}' \
+            --namespace ondota \
+            --set-string image.repository="$IMAGE_REPOSITORY" \
+            --set-string image.tag='${{ needs.version.outputs.value }}' \
+            --set ingress.enabled=true \
+            --set-string existingSecret=ondota-app \
+            --set-string env.logLevel='${{ vars.LOG_LEVEL || 'info' }}' \
+            --wait --timeout 5m
+
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Public host is ready
+        run: |
+          for i in $(seq 1 30); do
+            curl -fsS https://ondota.ownerofglory.com/readyz && exit 0
+            sleep 5
+          done
+          exit 1
+      - name: Device host rejects clients without a certificate
+        run: |
+          if curl -fsS https://devices.ondota.ownerofglory.com/livez; then
+            echo "device host accepted a request without a client certificate" >&2
+            exit 1
+          fi

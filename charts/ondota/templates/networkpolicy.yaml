@@ -1,0 +1,26 @@
+{{- if .Values.networkPolicy.enabled }}
+# Only Traefik may reach the server. This is what makes the forwarded
+# client-certificate header on the device port trustworthy (ADR-0003).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ondota.fullname" . }}
+  labels:
+    {{- include "ondota.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "ondota.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.traefikNamespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.traefikPodLabels | nindent 14 }}
+      ports:
+        - port: public
+        - port: device
+{{- end }}

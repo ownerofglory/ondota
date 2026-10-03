@@ -1,0 +1,41 @@
+# Namespace-scoped identity for the GitHub Actions release pipeline.
+# It can manage resources in namespace ondota only.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ondota-deployer
+  namespace: ondota
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ondota-deployer
+  namespace: ondota
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ondota-deployer
+  namespace: ondota
+subjects:
+  - kind: ServiceAccount
+    name: ondota-deployer
+    namespace: ondota
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ondota-deployer
+---
+# Long-lived token for CI (stored as GitHub secret KUBERNETES_TOKEN).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ondota-deployer-token
+  namespace: ondota
+  annotations:
+    kubernetes.io/service-account.name: ondota-deployer
+type: kubernetes.io/service-account-token
